@@ -173,6 +173,7 @@ def fetch_and_validate_bvb(date_str: str) -> str:
 
 if __name__ == "__main__":
     import argparse
+    import sys
     from datetime import datetime
 
     parser = argparse.ArgumentParser(
@@ -186,4 +187,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    print(f"STATUS: {fetch_and_validate_bvb(args.date)}")
+    status = fetch_and_validate_bvb(args.date)
+    print(f"STATUS: {status}")
+
+    if status not in {"SUCCESS", "NO_DATA"}:
+        sys.exit(1)
