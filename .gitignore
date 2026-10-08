@@ -6,3 +6,7 @@ data/raw/
 data/clean/
 
 src/*.before-db
+
+# Python cache
+__pycache__/
+*.py[cod]
