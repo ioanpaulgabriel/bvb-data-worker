@@ -1,0 +1,14 @@
+{
+  "symbol": "TLV",
+  "action_type": "split",
+  "ex_date": "2026-01-15",
+  "ratio": "2",
+  "cash_amount": null,
+  "currency": null,
+  "source": "official_issuer_notice",
+  "source_reference": "EXAMPLE-REPLACE-ME",
+  "raw_payload": {
+    "event": "replace-with-official-source-data",
+    "verified": false
+  }
+}
