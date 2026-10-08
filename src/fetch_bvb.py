@@ -1,9 +1,12 @@
+import json
 import os
 from datetime import datetime, timezone
 from io import StringIO
 
 import pandas as pd
+import psycopg
 import requests
+from dotenv import load_dotenv
 
 
 RAW_DIR = "data/raw"
@@ -11,6 +14,53 @@ CLEAN_DIR = "data/clean"
 
 os.makedirs(RAW_DIR, exist_ok=True)
 os.makedirs(CLEAN_DIR, exist_ok=True)
+
+
+load_dotenv(dotenv_path=".env")
+
+
+def persist_raw_to_postgres(
+    trade_date: str,
+    content: str,
+    http_status: int,
+    row_count: int,
+) -> None:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL nu este configurat")
+
+    payload = {
+        "format": "csv",
+        "content": content,
+    }
+
+    with psycopg.connect(database_url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO prices_daily_raw (
+                    trade_date,
+                    source,
+                    http_status,
+                    row_count,
+                    payload
+                )
+                VALUES (%s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (trade_date, source)
+                DO UPDATE SET
+                    fetched_at = now(),
+                    http_status = EXCLUDED.http_status,
+                    row_count = EXCLUDED.row_count,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    trade_date,
+                    "bvb_public_csv",
+                    http_status,
+                    row_count,
+                    json.dumps(payload),
+                ),
+            )
 
 REQUIRED_RAW_COLUMNS = [
     "Symbol",
@@ -72,6 +122,17 @@ def fetch_and_validate_bvb(date_str: str) -> str:
         return "PARSE_ERROR"
 
     df_raw.columns = [str(column).strip() for column in df_raw.columns]
+
+    try:
+        persist_raw_to_postgres(
+            trade_date=formatted_date,
+            content=content,
+            http_status=response.status_code,
+            row_count=len(df_raw),
+        )
+    except Exception as exc:
+        print(f"[{date_str}] DATABASE_ERROR: {exc}")
+        return "DATABASE_ERROR"
 
     missing = [
         column for column in REQUIRED_RAW_COLUMNS
