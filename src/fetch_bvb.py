@@ -172,8 +172,18 @@ def fetch_and_validate_bvb(date_str: str) -> str:
 
 
 if __name__ == "__main__":
-    print("Test 1: 20261007")
-    print(f"STATUS: {fetch_and_validate_bvb('20261007')}")
-    print()
-    print("Test 2: 20260925")
-    print(f"STATUS: {fetch_and_validate_bvb('20260925')}")
+    import argparse
+    from datetime import datetime
+
+    parser = argparse.ArgumentParser(
+        description="Descarcă și validează datele BVB pentru o zi."
+    )
+    parser.add_argument(
+        "date",
+        nargs="?",
+        default=datetime.now().strftime("%Y%m%d"),
+        help="Data în format YYYYMMDD; implicit: data curentă",
+    )
+    args = parser.parse_args()
+
+    print(f"STATUS: {fetch_and_validate_bvb(args.date)}")
