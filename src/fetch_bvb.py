@@ -62,6 +62,67 @@ def persist_raw_to_postgres(
                 ),
             )
 
+def persist_clean_prices_to_postgres(df_clean: pd.DataFrame) -> int:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL nu este configurat")
+
+    rows = [
+        (
+            row["date"],
+            row["symbol"],
+            row["name"],
+            row["market"],
+            row["trades"],
+            row["volume"],
+            row["value"],
+            row["open"],
+            row["low"],
+            row["high"],
+            row["avg_price"],
+            row["close"],
+            row["ref_price"],
+            row["change_pct"],
+            row["source"],
+            row["ingested_at"],
+        )
+        for _, row in df_clean.iterrows()
+    ]
+
+    query = """
+        INSERT INTO prices_daily (
+            trade_date, symbol, name, market, trades, volume,
+            value, open, low, high, avg_price, close,
+            ref_price, change_pct, source, ingested_at
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        ON CONFLICT (trade_date, symbol, source)
+        DO UPDATE SET
+            name = EXCLUDED.name,
+            market = EXCLUDED.market,
+            trades = EXCLUDED.trades,
+            volume = EXCLUDED.volume,
+            value = EXCLUDED.value,
+            open = EXCLUDED.open,
+            low = EXCLUDED.low,
+            high = EXCLUDED.high,
+            avg_price = EXCLUDED.avg_price,
+            close = EXCLUDED.close,
+            ref_price = EXCLUDED.ref_price,
+            change_pct = EXCLUDED.change_pct,
+            ingested_at = EXCLUDED.ingested_at
+    """
+
+    with psycopg.connect(database_url) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(query, rows)
+
+    return len(rows)
+
+
 REQUIRED_RAW_COLUMNS = [
     "Symbol",
     "Name",
@@ -217,6 +278,14 @@ def fetch_and_validate_bvb(date_str: str) -> str:
     })
 
     df_clean.to_csv(clean_path, index=False, encoding="utf-8")
+
+    try:
+        db_rows = persist_clean_prices_to_postgres(df_clean)
+    except Exception as exc:
+        print(f"[{date_str}] DATABASE_ERROR: prices_daily: {exc}")
+        return "DATABASE_ERROR"
+
+    print(f"DB_ROWS: {db_rows}")
 
     targets = {"TLV", "SNP", "SNG", "H2O", "BRD", "TTS"}
     found = sorted(targets.intersection(set(df_clean["symbol"])))
