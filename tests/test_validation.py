@@ -163,8 +163,11 @@ def test_fetch_returns_http_error(monkeypatch):
     assert fetch_bvb.fetch_and_validate_bvb("20261008") == "HTTP_ERROR"
 
 
-def test_fetch_returns_parse_error(monkeypatch):
+def test_fetch_returns_parse_error(monkeypatch, tmp_path):
     import fetch_bvb
+
+    monkeypatch.setattr(fetch_bvb, "RAW_DIR", str(tmp_path))
+    monkeypatch.setattr(fetch_bvb, "CLEAN_DIR", str(tmp_path))
 
     monkeypatch.setattr(
         fetch_bvb.requests,

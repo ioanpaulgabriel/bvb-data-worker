@@ -10,3 +10,8 @@ src/*.before-db
 # Python cache
 __pycache__/
 *.py[cod]
+data/raw/
+data/clean/
+data/quarantine/
+__pycache__/
+*.py[cod]
