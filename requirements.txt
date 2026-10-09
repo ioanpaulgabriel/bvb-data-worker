@@ -6,3 +6,6 @@ psycopg[binary]
 python-dotenv
 
 pytest
+
+backtesting
+ta
