@@ -1,0 +1,380 @@
+BVB DATA WORKER - PROJECT CONTEXT
+=================================
+
+Generated from committed documentation.
+
+
+=================================
+FILE: docs/ARCHITECTURE.md
+=================================
+
+# Arhitectura proiectului BVB Data Worker
+
+## Scop
+
+Proiectul descarca si valideaza date zilnice BVB.
+
+## Fluxul datelor
+
+BVB CSV -> src/fetch_bvb.py -> prices_daily_raw -> prices_daily -> price_adjustments
+
+## Componente
+
+- src/fetch_bvb.py: descarca si valideaza CSV-ul BVB.
+- prices_daily_raw: pastreaza raspunsul original pentru audit.
+- prices_daily: pastreaza datele normalizate REGS.
+- corporate_actions: pastreaza evenimentele corporative.
+- price_adjustments: pastreaza planul de ajustare.
+
+## Statusuri corporate actions
+
+- pending: importat, dar neverificat.
+- verified: verificat si disponibil pentru procesare.
+- rejected: respins si neprocesabil.
+
+## Starea actuala
+
+Colectarea, validarea, persistenta raw si importul evenimentelor sunt implementate. Aplicarea efectiva a ajustarilor nu este inca implementata.
+
+
+=================================
+FILE: docs/CORPORATE_ACTIONS.md
+=================================
+
+# Evenimente corporative si ajustari istorice
+
+## Scop
+
+Acest document descrie modul in care evenimentele corporative sunt importate, verificate si transformate in ajustari istorice.
+
+## Principiul de baza
+
+Datele originale din prices_daily nu se modifica. Ajustarile sunt pastrate separat in price_adjustments si se aplica la calculul unei serii ajustate.
+
+Formula generala:
+
+Adjusted Price = Unadjusted Price * Adjustment Factor
+
+Factorul se aplica datelor anterioare datei ex-date.
+
+## Tipuri de evenimente
+
+- cash_dividend: dividend platit in numerar.
+- stock_split: impartirea sau consolidarea actiunilor.
+- bonus_issue: distribuirea de actiuni bonus.
+- rights_issue: oferta de drepturi, care necesita reguli separate.
+
+## Bonus issue
+
+Pentru un bonus issue cu raportul ratio, factorul pretului este:
+
+factor = 1 / (1 + ratio)
+
+Exemplu: la un raport 1:4, ratio este 0.25, iar factorul este 0.8.
+
+Preturile anterioare datei ex-date se inmultesc cu factorul.
+
+## Split forward
+
+Pentru un split 2-la-1, factorul pretului este 0.5. Preturile istorice dinaintea ex-datei se inmultesc cu 0.5.
+
+Volumul, daca va fi ajustat in viitor, se modifica in directie opusa pretului.
+
+## Consolidare
+
+Pentru o consolidare 1-la-5, pretul istoric se inmulteste cu 5, in functie de reprezentarea folosita pentru raport.
+
+Raportul trebuie documentat explicit in corporate_actions inainte de calcul.
+
+## Dividend cash
+
+Ajustarea proportionala poate folosi formula:
+
+factor = (previous_close - dividend_amount) / previous_close
+
+Aceasta formula necesita previous_close valid si dividend_amount confirmat dintr-o sursa oficiala.
+
+## Statusuri
+
+- pending: eveniment importat, dar neverificat.
+- verified: eveniment verificat si eligibil pentru ajustare.
+- rejected: eveniment invalid sau neconfirmat.
+
+Numai evenimentele verified pot genera price_adjustments.
+
+## Reguli de siguranta
+
+- Nu ajusta datele raw.
+- Nu ajusta datele viitoare sau datele de la ex-date inainte.
+- Nu aplica un eveniment pending.
+- Pastreaza source_reference pentru fiecare eveniment.
+- Verifica rezultatul inainte de publicarea seriei ajustate.
+
+## Audit
+
+Fiecare ajustare trebuie sa poata fi explicata prin simbol, ex-date, tip, factor, sursa si momentul procesarii.
+
+
+=================================
+FILE: docs/DATA_MODEL.md
+=================================
+
+# Modelul de date
+
+## Scop
+
+Acest document descrie tabelele principale ale proiectului si relatiile dintre ele.
+
+## prices_daily_raw
+
+Pastreaza raspunsul original primit de la BVB, fara transformari.
+
+Campuri importante:
+
+- id: identificator unic.
+- trade_date: data tranzactiei.
+- source: sursa datelor.
+- payload: continutul original CSV in format JSONB.
+- created_at: momentul importului.
+
+## prices_daily
+
+Pastreaza datele REGS normalizate pentru fiecare simbol si zi de tranzactionare.
+
+Campuri importante:
+
+- id: identificator unic.
+- trade_date: data tranzactiei.
+- symbol: simbolul instrumentului.
+- open: pretul de deschidere.
+- low: pretul minim.
+- high: pretul maxim.
+- close: pretul de inchidere.
+- avg_price: pretul mediu.
+- ref_price: pretul de referinta.
+- source: sursa datelor.
+
+Regula de unicitate recomandata este trade_date, symbol si source.
+
+## corporate_actions
+
+Pastreaza evenimentele corporative asociate unui simbol.
+
+Campuri importante:
+
+- id: identificator unic.
+- symbol: simbolul instrumentului.
+- action_type: tipul evenimentului.
+- ex_date: data ex-event.
+- ratio: raportul evenimentului, unde este aplicabil.
+- source_reference: documentul sau pagina oficiala.
+- status: pending, verified sau rejected.
+
+## price_adjustments
+
+Pastreaza factorii calculati pentru ajustarea istorica a preturilor.
+
+Nu modifica preturile originale din prices_daily.
+
+Pentru un bonus_issue, formula este: factor = 1 / (1 + ratio).
+
+Ajustarea se aplica numai datelor anterioare datei ex-date.
+
+
+=================================
+FILE: docs/DEVELOPMENT.md
+=================================
+
+# Dezvoltare si instalare
+
+## Cerinte
+
+- Linux sau Debian.
+- Python 3.
+- PostgreSQL.
+- Git.
+
+## Activarea mediului virtual
+
+cd /home/bvb/bvb-data-worker
+source .venv/bin/activate
+
+## Verificarea mediului
+
+python --version
+pip --version
+
+## Structura proiectului
+
+- src/: codul aplicatiei.
+- migrations/: schema bazei de date.
+- data/raw/: fisiere CSV originale.
+- data/clean/: fisiere CSV validate si filtrate.
+- docs/: documentatia proiectului.
+
+## Comenzi utile
+
+Pornire colectare date:
+
+python src/fetch_bvb.py
+
+Verificarea testelor:
+
+pytest
+
+Verificarea modificarilor Git:
+
+git status --short
+
+## Reguli de dezvoltare
+
+- Nu modifica datele raw dupa import.
+- Pastreaza modificarile de schema in migrations/.
+- Valideaza datele inainte de inserarea in prices_daily.
+- Documenteaza deciziile importante in docs/adr/.
+
+
+=================================
+FILE: docs/OPERATIONS.md
+=================================
+
+# Operare
+
+## Scop
+
+Acest document descrie rularea zilnica, verificarile si recuperarea proiectului.
+
+## Rulare manuala
+
+cd /home/bvb/bvb-data-worker
+source .venv/bin/activate
+python src/fetch_bvb.py
+
+## Verificari dupa rulare
+
+- Confirma ca exista un CSV nou in data/raw/.
+- Confirma ca exista un CSV nou in data/clean/.
+- Verifica numarul de randuri importate.
+- Verifica eventualele erori din loguri.
+- Confirma ca datele pentru REGS au fost procesate.
+
+## Verificarea bazei de date
+
+Verifica ultima data disponibila in prices_daily si numarul de randuri pentru acea data.
+
+Compara numarul de randuri din CSV-ul curatat cu numarul de randuri inserate in prices_daily.
+
+## Backup
+
+Backup-ul bazei de date trebuie facut inainte de modificari de schema sau operatii de reparare.
+
+Exemplu:
+
+pg_dump DATABASE_NAME > backup.sql
+
+## Recuperare
+
+Pentru restaurare se foloseste un backup verificat:
+
+psql DATABASE_NAME < backup.sql
+
+Dupa restaurare, verifica schema, numarul de randuri si ultima data importata.
+
+## Regula de siguranta
+
+Nu sterge fisierele din data/raw/ si nu modifica manual preturile originale din prices_daily.
+
+
+=================================
+FILE: docs/TROUBLESHOOTING.md
+=================================
+
+# Diagnosticarea problemelor
+
+## CSV lipsa sau gol
+
+- Verifica daca BVB a raspuns cu status HTTP valid.
+- Verifica dimensiunea fisierului din data/raw/.
+- Deschide primele randuri ale fisierului cu head.
+- Confirma ca raspunsul este CSV si nu o pagina HTML de eroare.
+
+## Coloane lipsa
+
+- Compara antetul CSV cu lista de coloane asteptate.
+- Nu importa datele pana cand formatul nu este clarificat.
+
+## Valori numerice invalide
+
+- Identifica randul si simbolul problematic.
+- Pastreaza fisierul raw pentru investigatie.
+- Corecteaza parserul numai dupa confirmarea formatului BVB.
+
+## Low mai mare decat High
+
+- Marcheaza randul ca invalid.
+- Nu modifica manual valorile.
+- Verifica fisierul original si logurile importului.
+
+## Date duplicate
+
+- Verifica cheia trade_date, symbol si source.
+- Nu sterge automat duplicatele.
+- Determina daca sunt surse diferite sau reimporturi.
+
+## Eroare PostgreSQL
+
+- Verifica daca serviciul PostgreSQL ruleaza.
+- Verifica variabilele de conexiune.
+- Verifica daca migrarile au fost aplicate.
+- Verifica permisiunile utilizatorului bazei de date.
+
+## Date deja importate
+
+- Verifica daca importul este idempotent.
+- Nu duplica randurile la rerulare.
+- Compara numarul de randuri inainte si dupa rerulare.
+
+## Regula generala
+
+Nu sterge datele raw inainte de finalizarea investigatiei.
+
+
+=================================
+FILE: docs/adr/0001-raw-data-before-normalization.md
+=================================
+
+# ADR-0001: Pastrarea datelor brute inainte de normalizare
+
+## Status
+
+Acceptata
+
+## Context
+
+Datele BVB pot avea modificari de format, coloane lipsa, valori invalide sau raspunsuri care nu sunt CSV. Daca pastram numai datele transformate, investigarea si reimportul devin dificile.
+
+## Decizia
+
+Salvam raspunsul original BVB in prices_daily_raw inainte de validare si normalizare.
+
+Aplicatia poate produce apoi date curatate in prices_daily, dar payload-ul original ramane neschimbat.
+
+## Consecinte pozitive
+
+- Putem audita exact raspunsul primit.
+- Putem reexecuta parserul dupa o corectie.
+- Putem compara versiuni diferite ale parserului.
+- Erorile de import pot fi investigate fara recontactarea sursei.
+
+## Consecinte negative
+
+- Baza de date necesita mai mult spatiu.
+- Payload-ul raw poate contine formatari sau date care trebuie protejate.
+- Este necesara o politica de retentie si backup.
+
+## Reguli
+
+- prices_daily_raw este append-only, cu exceptia operatiilor administrative documentate.
+- Normalizarea nu modifica payload-ul original.
+- Orice corectie se face printr-un nou proces de import sau printr-o migratie documentata.
+
