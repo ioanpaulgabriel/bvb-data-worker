@@ -117,3 +117,124 @@ def test_ingest_raw_file_rejects_file_without_regs(tmp_path):
 
     with pytest.raises(ValueError, match="Nu exista randuri REGS"):
         retry_raw.ingest_raw_file_to_postgres(raw_path)
+
+
+class FakeResponse:
+    def __init__(self, text="", status_code=200, error=None):
+        self.text = text
+        self.status_code = status_code
+        self.error = error
+
+    def raise_for_status(self):
+        if self.error is not None:
+            raise self.error
+
+
+def test_fetch_rejects_invalid_date():
+    import fetch_bvb
+
+    assert fetch_bvb.fetch_and_validate_bvb("2026-10-08") == "VALIDATION_ERROR"
+
+
+def test_fetch_returns_no_data_for_empty_response(monkeypatch):
+    import fetch_bvb
+
+    monkeypatch.setattr(
+        fetch_bvb.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse(text=""),
+    )
+
+    assert fetch_bvb.fetch_and_validate_bvb("20261008") == "NO_DATA"
+
+
+def test_fetch_returns_http_error(monkeypatch):
+    import requests
+    import fetch_bvb
+
+    monkeypatch.setattr(
+        fetch_bvb.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse(
+            error=requests.RequestException("network error")
+        ),
+    )
+
+    assert fetch_bvb.fetch_and_validate_bvb("20261008") == "HTTP_ERROR"
+
+
+def test_fetch_returns_parse_error(monkeypatch):
+    import fetch_bvb
+
+    monkeypatch.setattr(
+        fetch_bvb.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse(text="some content"),
+    )
+
+    def fail_read_csv(*args, **kwargs):
+        raise ValueError("invalid csv")
+
+    monkeypatch.setattr(fetch_bvb.pd, "read_csv", fail_read_csv)
+
+    assert fetch_bvb.fetch_and_validate_bvb("20261008") == "PARSE_ERROR"
+
+
+def test_fetch_returns_database_error(monkeypatch, tmp_path):
+    import fetch_bvb
+
+    monkeypatch.setattr(fetch_bvb, "RAW_DIR", str(tmp_path))
+    monkeypatch.setattr(fetch_bvb, "CLEAN_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        fetch_bvb.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse(
+            text=make_csv([valid_row()])
+        ),
+    )
+    monkeypatch.setattr(
+        fetch_bvb,
+        "persist_raw_to_postgres",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
+    )
+
+    assert fetch_bvb.fetch_and_validate_bvb("20261008") == "DATABASE_ERROR"
+
+
+def test_fetch_validates_and_persists_valid_csv(monkeypatch, tmp_path):
+    import fetch_bvb
+
+    monkeypatch.setattr(fetch_bvb, "RAW_DIR", str(tmp_path))
+    monkeypatch.setattr(fetch_bvb, "CLEAN_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        fetch_bvb.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse(
+            text=make_csv([valid_row("VALID1")])
+        ),
+    )
+
+    raw_calls = []
+    clean_calls = []
+
+    monkeypatch.setattr(
+        fetch_bvb,
+        "persist_raw_to_postgres",
+        lambda **kwargs: raw_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        fetch_bvb,
+        "persist_clean_prices_to_postgres",
+        lambda frame: clean_calls.append(frame.copy()) or len(frame),
+    )
+
+    result = fetch_bvb.fetch_and_validate_bvb("20261008")
+
+    assert result == "SUCCESS"
+    assert len(raw_calls) == 1
+    assert raw_calls[0]["trade_date"] == "2026-10-08"
+    assert raw_calls[0]["row_count"] == 1
+    assert len(clean_calls) == 1
+    assert clean_calls[0].iloc[0]["symbol"] == "VALID1"
