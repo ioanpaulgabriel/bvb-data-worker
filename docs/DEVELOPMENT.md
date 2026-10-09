@@ -45,3 +45,25 @@ git status --short
 - Pastreaza modificarile de schema in migrations/.
 - Valideaza datele inainte de inserarea in prices_daily.
 - Documenteaza deciziile importante in docs/adr/.
+
+## Testare
+
+Testele unitare și de integrare pot fi rulate cu:
+
+```bash
+PYTHONPATH=src .venv/bin/pytest -q
+```
+
+Pentru rularea exclusivă a testului PostgreSQL:
+
+```bash
+PYTHONPATH=src .venv/bin/pytest -q -m integration
+```
+
+Testul de integrare necesită `DATABASE_URL` configurat și trebuie rulat numai împotriva unei baze de test sau development, nu împotriva producției.
+
+Pentru a verifica testele marcate și rezultatele detaliate:
+
+```bash
+PYTHONPATH=src .venv/bin/pytest -q -m integration -rs
+```
