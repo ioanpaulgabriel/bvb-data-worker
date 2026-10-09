@@ -300,3 +300,47 @@ def test_ingest_same_raw_file_twice_is_idempotent(tmp_path, monkeypatch):
     assert len(persisted_clean[1]) == 1
     assert persisted_clean[0].iloc[0]["symbol"] == "IDEMP1"
     assert persisted_clean[1].iloc[0]["symbol"] == "IDEMP1"
+
+
+def test_retry_pending_raw_files_when_directory_is_empty(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setattr(retry_raw, "RAW_DIR", tmp_path)
+
+    retry_raw.retry_pending_raw_files()
+
+    captured = capsys.readouterr()
+    assert f"NU_EXISTĂ_WAL: {tmp_path}" in captured.out
+
+
+def test_retry_pending_raw_files_continues_after_failure(
+    monkeypatch, tmp_path, capsys
+):
+    first = tmp_path / "2026-10-07_bvb.csv"
+    second = tmp_path / "2026-10-08_bvb.csv"
+
+    first.write_text("first", encoding="utf-8")
+    second.write_text("second", encoding="utf-8")
+
+    processed = []
+    failed_path = first
+
+    def fake_ingest(raw_path):
+        processed.append(raw_path)
+        if raw_path == failed_path:
+            raise ValueError("invalid raw file")
+
+    monkeypatch.setattr(retry_raw, "RAW_DIR", tmp_path)
+    monkeypatch.setattr(
+        retry_raw,
+        "ingest_raw_file_to_postgres",
+        fake_ingest,
+    )
+
+    retry_raw.retry_pending_raw_files()
+
+    captured = capsys.readouterr()
+
+    assert processed == [first, second]
+    assert f"RETRY_FAILED: {first}" in captured.out
+    assert f"RETRY_SUCCESS: {second}" in captured.out
