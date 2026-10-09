@@ -344,3 +344,83 @@ def test_retry_pending_raw_files_continues_after_failure(
     assert processed == [first, second]
     assert f"RETRY_FAILED: {first}" in captured.out
     assert f"RETRY_SUCCESS: {second}" in captured.out
+
+
+import os
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.getenv("DATABASE_URL"),
+    reason="DATABASE_URL nu este configurat",
+)
+def test_persist_clean_prices_is_idempotent():
+    import fetch_bvb
+
+    frame = pd.DataFrame(
+        [
+            {
+                "date": "2026-10-08",
+                "symbol": "INTEGRATION1",
+                "name": "Integration test",
+                "market": "REGS",
+                "trades": 1,
+                "volume": 100,
+                "value": 1000.0,
+                "open": 10.0,
+                "low": 9.5,
+                "high": 10.5,
+                "avg_price": 10.0,
+                "close": 10.0,
+                "ref_price": 10.0,
+                "change_pct": 0.0,
+                "source": "pytest_integration",
+                "ingested_at": "2026-10-08T00:00:00+00:00",
+            }
+        ]
+    )
+
+    database_url = os.environ["DATABASE_URL"]
+
+    import psycopg
+
+    with psycopg.connect(database_url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM prices_daily
+                WHERE trade_date = %s
+                  AND symbol = %s
+                  AND source = %s
+                """,
+                ("2026-10-08", "INTEGRATION1", "pytest_integration"),
+            )
+
+    fetch_bvb.persist_clean_prices_to_postgres(frame)
+    fetch_bvb.persist_clean_prices_to_postgres(frame)
+
+    with psycopg.connect(database_url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM prices_daily
+                WHERE trade_date = %s
+                  AND symbol = %s
+                  AND source = %s
+                """,
+                ("2026-10-08", "INTEGRATION1", "pytest_integration"),
+            )
+            count = cursor.fetchone()[0]
+
+            cursor.execute(
+                """
+                DELETE FROM prices_daily
+                WHERE trade_date = %s
+                  AND symbol = %s
+                  AND source = %s
+                """,
+                ("2026-10-08", "INTEGRATION1", "pytest_integration"),
+            )
+
+    assert count == 1
