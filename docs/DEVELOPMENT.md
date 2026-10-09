@@ -20,7 +20,7 @@ pip --version
 ## Structura proiectului
 
 - src/: codul aplicatiei.
-- migrations/: schema bazei de date.
+- db/migrations/: schema bazei de date.
 - data/raw/: fisiere CSV originale.
 - data/clean/: fisiere CSV validate si filtrate.
 - docs/: documentatia proiectului.
