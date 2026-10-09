@@ -238,3 +238,65 @@ def test_fetch_validates_and_persists_valid_csv(monkeypatch, tmp_path):
     assert raw_calls[0]["row_count"] == 1
     assert len(clean_calls) == 1
     assert clean_calls[0].iloc[0]["symbol"] == "VALID1"
+
+def test_ingest_same_raw_file_twice_is_idempotent(tmp_path, monkeypatch):
+    raw_path = tmp_path / "2026-10-08_bvb.csv"
+    raw_path.write_text(
+        make_csv([valid_row("IDEMP1")]),
+        encoding="utf-8",
+    )
+
+    persisted_raw = []
+    persisted_clean = []
+
+    monkeypatch.setattr(
+        retry_raw,
+        "persist_raw_to_postgres",
+        lambda **kwargs: persisted_raw.append(kwargs),
+    )
+    monkeypatch.setattr(
+        retry_raw,
+        "persist_clean_prices_to_postgres",
+        lambda frame: persisted_clean.append(frame.copy()) or len(frame),
+    )
+
+    retry_raw.ingest_raw_file_to_postgres(raw_path)
+    retry_raw.ingest_raw_file_to_postgres(raw_path)
+
+    assert len(persisted_raw) == 2
+    assert len(persisted_clean) == 2
+    assert len(persisted_clean[0]) == 1
+    assert len(persisted_clean[1]) == 1
+    assert persisted_clean[0].iloc[0]["symbol"] == "IDEMP1"
+    assert persisted_clean[1].iloc[0]["symbol"] == "IDEMP1"
+
+def test_ingest_same_raw_file_twice_is_idempotent(tmp_path, monkeypatch):
+    raw_path = tmp_path / "2026-10-08_bvb.csv"
+    raw_path.write_text(
+        make_csv([valid_row("IDEMP1")]),
+        encoding="utf-8",
+    )
+
+    persisted_raw = []
+    persisted_clean = []
+
+    monkeypatch.setattr(
+        retry_raw,
+        "persist_raw_to_postgres",
+        lambda **kwargs: persisted_raw.append(kwargs),
+    )
+    monkeypatch.setattr(
+        retry_raw,
+        "persist_clean_prices_to_postgres",
+        lambda frame: persisted_clean.append(frame.copy()) or len(frame),
+    )
+
+    retry_raw.ingest_raw_file_to_postgres(raw_path)
+    retry_raw.ingest_raw_file_to_postgres(raw_path)
+
+    assert len(persisted_raw) == 2
+    assert len(persisted_clean) == 2
+    assert len(persisted_clean[0]) == 1
+    assert len(persisted_clean[1]) == 1
+    assert persisted_clean[0].iloc[0]["symbol"] == "IDEMP1"
+    assert persisted_clean[1].iloc[0]["symbol"] == "IDEMP1"
