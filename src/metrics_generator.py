@@ -28,6 +28,9 @@ RISK_PER_TRADE = 0.01
 
 ATR_PERIOD = 14
 ATR_MULTIPLIER = 2.0
+MAX_TOTAL_EXPOSURE = 1.0
+MAX_SYMBOL_EXPOSURE = 0.25
+MAX_ACTIVE_POSITIONS = 5
 
 
 def load_trades() -> list[dict]:
@@ -391,7 +394,44 @@ def main() -> None:
                 position_size = risk_amount / stop_distance
                 position_value = position_size * entry_price
                 position_value = min(position_value, sequential_equity)
-                allocation_weight = position_value / sequential_equity
+                raw_weight = position_value / sequential_equity
+
+                active_prior = [
+                    (prior_result, prior_weight)
+                    for prior_result, prior_weight in zip(results, allocation_weights)
+                    if prior_weight is not None
+                    and prior_result["entry_date"] <= trade["entry_date"]
+                    and trade["entry_date"] < prior_result["actual_exit_date"]
+                ]
+
+                total_exposure = sum(
+                    weight for _, weight in active_prior
+                )
+                symbol_exposure = sum(
+                    weight
+                    for prior_result, weight in active_prior
+                    if prior_result["symbol"] == trade["symbol"]
+                )
+
+                available_total = MAX_TOTAL_EXPOSURE - total_exposure
+                available_symbol = MAX_SYMBOL_EXPOSURE - symbol_exposure
+                available_weight = min(available_total, available_symbol)
+
+                if (
+                    len(active_prior) >= MAX_ACTIVE_POSITIONS
+                    or available_weight <= 0
+                ):
+                    allocation_weight = None
+                    position_value = None
+                    position_size = None
+                    risk_amount = None
+                else:
+                    allocation_weight = min(raw_weight, available_weight)
+                    position_value = allocation_weight * sequential_equity
+                    position_size = position_value / entry_price
+                    risk_amount = (
+                        position_value * stop_distance / entry_price
+                    )
 
             atr_trade_metrics.append(
                 {
@@ -437,6 +477,9 @@ def main() -> None:
             "atr_period": ATR_PERIOD,
             "atr_multiplier": ATR_MULTIPLIER,
             "atr_sizing_model": "risk_targeted_dynamic_weight",
+            "max_total_exposure": MAX_TOTAL_EXPOSURE,
+            "max_symbol_exposure": MAX_SYMBOL_EXPOSURE,
+            "max_active_positions": MAX_ACTIVE_POSITIONS,
         },
         **metrics,
         "portfolio_max_drawdown_daily": portfolio_max_drawdown_daily,
