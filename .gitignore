@@ -15,3 +15,4 @@ data/clean/
 data/quarantine/
 __pycache__/
 *.py[cod]
+output/
