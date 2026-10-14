@@ -31,6 +31,7 @@ ATR_MULTIPLIER = 2.0
 MAX_TOTAL_EXPOSURE = 1.0
 MAX_SYMBOL_EXPOSURE = 0.25
 MAX_ACTIVE_POSITIONS = 5
+DAILY_RISK_BUDGET = 0.02
 
 
 def load_trades() -> list[dict]:
@@ -194,19 +195,25 @@ def compute_daily_portfolio(
 def compute_atr_daily_portfolio(
     daily_returns_by_trade: list[dict],
     allocation_weights: list[float | None],
+    daily_risk_by_trade: list[dict],
+    daily_risk_budget: float,
 ) -> tuple[list[dict], float]:
     """Equity curve ponderat ATR, cu greutati normalizate zilnic."""
 
     valid_trades = [
-        (returns, weight)
-        for returns, weight in zip(daily_returns_by_trade, allocation_weights)
+        (returns, weight, risks)
+        for returns, weight, risks in zip(
+            daily_returns_by_trade,
+            allocation_weights,
+            daily_risk_by_trade,
+        )
         if weight is not None and weight > 0
     ]
 
     all_dates = sorted(
         {
             current_date
-            for trade_returns, _ in valid_trades
+            for trade_returns, _, _ in valid_trades
             for current_date in trade_returns
         }
     )
@@ -220,12 +227,17 @@ def compute_atr_daily_portfolio(
         weighted_returns = []
         total_weight = 0.0
 
-        for trade_returns, weight in valid_trades:
+        risk_used = 0.0
+
+        for trade_returns, weight, trade_risks in valid_trades:
             if current_date not in trade_returns:
                 continue
 
             weighted_returns.append(weight * trade_returns[current_date])
             total_weight += weight
+            risk_used += trade_risks.get(current_date, 0.0)
+
+        risk_remaining = max(0.0, daily_risk_budget - risk_used)
 
         if total_weight > 0:
             portfolio_return = sum(weighted_returns) / total_weight
@@ -246,6 +258,8 @@ def compute_atr_daily_portfolio(
                 "portfolio_return": portfolio_return,
                 "equity": equity,
                 "drawdown": drawdown,
+                "daily_risk_used": risk_used,
+                "daily_risk_remaining": risk_remaining,
             }
         )
 
@@ -397,20 +411,31 @@ def main() -> None:
                 raw_weight = position_value / sequential_equity
 
                 active_prior = [
-                    (prior_result, prior_weight)
-                    for prior_result, prior_weight in zip(results, allocation_weights)
+                    (prior_result, prior_weight, prior_metric)
+                    for prior_result, prior_weight, prior_metric in zip(
+                        results,
+                        allocation_weights,
+                        atr_trade_metrics,
+                    )
                     if prior_weight is not None
                     and prior_result["entry_date"] <= trade["entry_date"]
                     and trade["entry_date"] < prior_result["actual_exit_date"]
                 ]
 
                 total_exposure = sum(
-                    weight for _, weight in active_prior
+                    weight for _, weight, _ in active_prior
                 )
                 symbol_exposure = sum(
                     weight
-                    for prior_result, weight in active_prior
+                    for prior_result, weight, _ in active_prior
                     if prior_result["symbol"] == trade["symbol"]
+                )
+
+                daily_risk_used = sum(
+                    weight
+                    * prior_metric["stop_distance"]
+                    / prior_result["entry_price"]
+                    for prior_result, weight, prior_metric in active_prior
                 )
 
                 available_total = MAX_TOTAL_EXPOSURE - total_exposure
@@ -420,6 +445,7 @@ def main() -> None:
                 if (
                     len(active_prior) >= MAX_ACTIVE_POSITIONS
                     or available_weight <= 0
+                    or daily_risk_used >= DAILY_RISK_BUDGET
                 ):
                     allocation_weight = None
                     position_value = None
@@ -456,10 +482,33 @@ def main() -> None:
         daily_returns_by_trade,
     )
 
+    daily_risk_by_trade = []
+
+    for trade, result, metric, trade_returns in zip(
+        trades,
+        results,
+        atr_trade_metrics,
+        daily_returns_by_trade,
+    ):
+        weight = metric["allocation_weight"]
+        trade_risks = {}
+
+        if weight is not None and metric["stop_distance"] is not None:
+            risk_fraction = (
+                weight * metric["stop_distance"] / float(trade["entry_price"])
+            )
+
+            for current_date in trade_returns:
+                trade_risks[current_date] = risk_fraction
+
+        daily_risk_by_trade.append(trade_risks)
+
     atr_equity_curve, atr_portfolio_max_drawdown_daily = (
         compute_atr_daily_portfolio(
             daily_returns_by_trade,
             allocation_weights,
+            daily_risk_by_trade,
+            DAILY_RISK_BUDGET,
         )
     )
 
@@ -477,6 +526,7 @@ def main() -> None:
             "atr_period": ATR_PERIOD,
             "atr_multiplier": ATR_MULTIPLIER,
             "atr_sizing_model": "risk_targeted_dynamic_weight",
+            "daily_risk_budget": DAILY_RISK_BUDGET,
             "max_total_exposure": MAX_TOTAL_EXPOSURE,
             "max_symbol_exposure": MAX_SYMBOL_EXPOSURE,
             "max_active_positions": MAX_ACTIVE_POSITIONS,
