@@ -79,6 +79,95 @@ def simulate_trade(rows: list[dict], trade: dict) -> dict:
     }
 
 
+def compute_trade_daily_returns(
+    rows: list[dict],
+    trade: dict,
+    result: dict,
+) -> dict:
+    """Returneaza randamentul zilnic al unei tranzactii, de la intrare la iesire.
+
+    Prima zi compara close-ul cu pretul de intrare.
+    Ziua de iesire compara pretul final cu close-ul zilei anterioare.
+    Ziua de stop compara stop_price cu close-ul zilei anterioare.
+    """
+
+    entry_price = float(trade["entry_price"])
+    entry_date = trade["entry_date"]
+    actual_exit_date = result["actual_exit_date"]
+    exit_price = result["exit_price"]
+
+    series = [
+        r for r in rows
+        if entry_date <= r["date"] <= actual_exit_date
+    ]
+
+    daily_returns = {}
+    previous_close = entry_price
+
+    for row in series:
+        current_date = row["date"]
+        close_price = row["close"]
+
+        if current_date == actual_exit_date:
+            end_price = exit_price
+        else:
+            end_price = close_price
+
+        daily_returns[current_date] = end_price / previous_close - 1
+        previous_close = close_price
+
+    return daily_returns
+
+
+def compute_daily_portfolio(
+    results: list[dict],
+    daily_returns_by_trade: list[dict],
+) -> tuple[list[dict], float]:
+    """Construieste equity curve zilnic equal-weight pentru pozitiile active."""
+
+    all_dates = sorted(
+        {
+            current_date
+            for trade_returns in daily_returns_by_trade
+            for current_date in trade_returns
+        }
+    )
+
+    equity = 1.0
+    peak = 1.0
+    max_drawdown = 0.0
+    curve = []
+
+    for current_date in all_dates:
+        active_returns = [
+            trade_returns[current_date]
+            for trade_returns in daily_returns_by_trade
+            if current_date in trade_returns
+        ]
+
+        if active_returns:
+            portfolio_return = sum(active_returns) / len(active_returns)
+        else:
+            portfolio_return = 0.0
+
+        equity *= 1 + portfolio_return
+        peak = max(peak, equity)
+        drawdown = equity / peak - 1
+        max_drawdown = min(max_drawdown, drawdown)
+
+        curve.append(
+            {
+                "date": current_date,
+                "active_trades": len(active_returns),
+                "portfolio_return": portfolio_return,
+                "equity": equity,
+                "drawdown": drawdown,
+            }
+        )
+
+    return curve, max_drawdown
+
+
 def compute_metrics(results: list[dict]) -> dict:
     net_returns = [r["net_return"] for r in results]
     total_trades = len(net_returns)
@@ -135,17 +224,19 @@ def main() -> None:
 
     trades = load_trades()
     results = []
+    daily_returns_by_trade = []
 
     with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         for trade in trades:
             cur.execute(
                 """
-                SELECT trade_date, low
+                SELECT trade_date, low, close
                   FROM historical_ohlcv
                  WHERE symbol = %s
                    AND trade_date >= %s
-                   AND trade_date < %s
+                   AND trade_date <= %s
                    AND low IS NOT NULL
+                   AND close IS NOT NULL
                  ORDER BY trade_date ASC
                 """,
                 (
@@ -156,13 +247,26 @@ def main() -> None:
             )
 
             rows = [
-                {"date": row[0], "low": float(row[1])}
+                {
+                    "date": row[0],
+                    "low": float(row[1]),
+                    "close": float(row[2]),
+                }
                 for row in cur.fetchall()
             ]
 
-            results.append(simulate_trade(rows, trade))
+            result = simulate_trade(rows, trade)
+            results.append(result)
+
+            daily_returns_by_trade.append(
+                compute_trade_daily_returns(rows, trade, result)
+            )
 
     metrics = compute_metrics(results)
+    daily_equity_curve, portfolio_max_drawdown_daily = compute_daily_portfolio(
+        results,
+        daily_returns_by_trade,
+    )
 
     payload = {
         "strategy": STRATEGY_NAME,
@@ -174,10 +278,13 @@ def main() -> None:
             "cost_rate": COST_RATE,
             "risk_per_trade": RISK_PER_TRADE,
             "stop_mode": "intraday_low",
+            "daily_portfolio_model": "equal_weight_active_positions",
         },
         **metrics,
+        "portfolio_max_drawdown_daily": portfolio_max_drawdown_daily,
         "net_returns": [r["net_return"] for r in results],
         "trade_results": results,
+        "daily_equity_curve": daily_equity_curve,
     }
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -188,6 +295,15 @@ def main() -> None:
 
     print(f"Metrics written to {OUTPUT_FILE}")
     print(json.dumps(metrics, indent=2))
+    print(
+        json.dumps(
+            {
+                "portfolio_max_drawdown_daily": portfolio_max_drawdown_daily,
+                "daily_equity_points": len(daily_equity_curve),
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
