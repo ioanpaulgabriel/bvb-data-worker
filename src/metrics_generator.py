@@ -516,11 +516,7 @@ def main() -> None:
         latest_risk_point = atr_equity_curve[-1]
         risk_status = {
             "date": latest_risk_point["date"],
-            "status": (
-                "RISK_BUDGET_EXHAUSTED"
-                if latest_risk_point["daily_risk_remaining"] <= 0
-                else "RISK_BUDGET_AVAILABLE"
-            ),
+            "status": "HISTORICAL_SIMULATION_ONLY",
             "daily_risk_used": latest_risk_point["daily_risk_used"],
             "daily_risk_remaining": latest_risk_point["daily_risk_remaining"],
         }

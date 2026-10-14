@@ -3,6 +3,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+
 import retry_raw
 
 
