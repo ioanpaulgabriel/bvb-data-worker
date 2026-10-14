@@ -512,6 +512,26 @@ def main() -> None:
         )
     )
 
+    if atr_equity_curve:
+        latest_risk_point = atr_equity_curve[-1]
+        risk_status = {
+            "date": latest_risk_point["date"],
+            "status": (
+                "RISK_BUDGET_EXHAUSTED"
+                if latest_risk_point["daily_risk_remaining"] <= 0
+                else "RISK_BUDGET_AVAILABLE"
+            ),
+            "daily_risk_used": latest_risk_point["daily_risk_used"],
+            "daily_risk_remaining": latest_risk_point["daily_risk_remaining"],
+        }
+    else:
+        risk_status = {
+            "date": None,
+            "status": "NO_DATA",
+            "daily_risk_used": 0.0,
+            "daily_risk_remaining": DAILY_RISK_BUDGET,
+        }
+
     payload = {
         "strategy": STRATEGY_NAME,
         "version": STRATEGY_VERSION,
@@ -534,6 +554,7 @@ def main() -> None:
         **metrics,
         "portfolio_max_drawdown_daily": portfolio_max_drawdown_daily,
         "atr_portfolio_max_drawdown_daily": atr_portfolio_max_drawdown_daily,
+        "risk_status": risk_status,
         "net_returns": [r["net_return"] for r in results],
         "trade_results": results,
         "daily_equity_curve": daily_equity_curve,
