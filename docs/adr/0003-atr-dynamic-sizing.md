@@ -2,6 +2,8 @@
 
 ## Status
 
+Acceptata
+
 Propus
 
 ## Context

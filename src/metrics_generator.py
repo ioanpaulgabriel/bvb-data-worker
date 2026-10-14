@@ -26,6 +26,9 @@ STOP_LOSS = 0.08
 COST_RATE = 0.005
 RISK_PER_TRADE = 0.01
 
+ATR_PERIOD = 14
+ATR_MULTIPLIER = 2.0
+
 
 def load_trades() -> list[dict]:
     with TRADES_FILE.open(newline="", encoding="utf-8") as f:
@@ -79,18 +82,37 @@ def simulate_trade(rows: list[dict], trade: dict) -> dict:
     }
 
 
+def compute_atr(atr_rows: list[dict], period: int) -> float | None:
+    """Calculeaza ATR simplu din ultimele `period` True Range-uri."""
+
+    if len(atr_rows) < period + 1:
+        return None
+
+    true_ranges = []
+
+    for previous, current in zip(atr_rows[:-1], atr_rows[1:]):
+        high = current["high"]
+        low = current["low"]
+        previous_close = previous["close"]
+
+        true_range = max(
+            high - low,
+            abs(high - previous_close),
+            abs(low - previous_close),
+        )
+        true_ranges.append(true_range)
+
+    relevant = true_ranges[-period:]
+    atr = sum(relevant) / len(relevant)
+
+    return atr if atr > 0 else None
+
+
 def compute_trade_daily_returns(
     rows: list[dict],
     trade: dict,
     result: dict,
 ) -> dict:
-    """Returneaza randamentul zilnic al unei tranzactii, de la intrare la iesire.
-
-    Prima zi compara close-ul cu pretul de intrare.
-    Ziua de iesire compara pretul final cu close-ul zilei anterioare.
-    Ziua de stop compara stop_price cu close-ul zilei anterioare.
-    """
-
     entry_price = float(trade["entry_price"])
     entry_date = trade["entry_date"]
     actual_exit_date = result["actual_exit_date"]
@@ -123,8 +145,6 @@ def compute_daily_portfolio(
     results: list[dict],
     daily_returns_by_trade: list[dict],
 ) -> tuple[list[dict], float]:
-    """Construieste equity curve zilnic equal-weight pentru pozitiile active."""
-
     all_dates = sorted(
         {
             current_date
@@ -159,6 +179,67 @@ def compute_daily_portfolio(
             {
                 "date": current_date,
                 "active_trades": len(active_returns),
+                "portfolio_return": portfolio_return,
+                "equity": equity,
+                "drawdown": drawdown,
+            }
+        )
+
+    return curve, max_drawdown
+
+
+def compute_atr_daily_portfolio(
+    daily_returns_by_trade: list[dict],
+    allocation_weights: list[float | None],
+) -> tuple[list[dict], float]:
+    """Equity curve ponderat ATR, cu greutati normalizate zilnic."""
+
+    valid_trades = [
+        (returns, weight)
+        for returns, weight in zip(daily_returns_by_trade, allocation_weights)
+        if weight is not None and weight > 0
+    ]
+
+    all_dates = sorted(
+        {
+            current_date
+            for trade_returns, _ in valid_trades
+            for current_date in trade_returns
+        }
+    )
+
+    equity = 1.0
+    peak = 1.0
+    max_drawdown = 0.0
+    curve = []
+
+    for current_date in all_dates:
+        weighted_returns = []
+        total_weight = 0.0
+
+        for trade_returns, weight in valid_trades:
+            if current_date not in trade_returns:
+                continue
+
+            weighted_returns.append(weight * trade_returns[current_date])
+            total_weight += weight
+
+        if total_weight > 0:
+            portfolio_return = sum(weighted_returns) / total_weight
+            active_trades = len(weighted_returns)
+        else:
+            portfolio_return = 0.0
+            active_trades = 0
+
+        equity *= 1 + portfolio_return
+        peak = max(peak, equity)
+        drawdown = equity / peak - 1
+        max_drawdown = min(max_drawdown, drawdown)
+
+        curve.append(
+            {
+                "date": current_date,
+                "active_trades": active_trades,
                 "portfolio_return": portfolio_return,
                 "equity": equity,
                 "drawdown": drawdown,
@@ -225,6 +306,10 @@ def main() -> None:
     trades = load_trades()
     results = []
     daily_returns_by_trade = []
+    atr_trade_metrics = []
+    allocation_weights = []
+
+    sequential_equity = 1.0
 
     with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         for trade in trades:
@@ -262,10 +347,80 @@ def main() -> None:
                 compute_trade_daily_returns(rows, trade, result)
             )
 
+            cur.execute(
+                """
+                SELECT trade_date, high, low, close
+                  FROM historical_ohlcv
+                 WHERE symbol = %s
+                   AND trade_date < %s
+                   AND high IS NOT NULL
+                   AND low IS NOT NULL
+                   AND close IS NOT NULL
+                 ORDER BY trade_date DESC
+                 LIMIT %s
+                """,
+                (
+                    trade["symbol"],
+                    trade["entry_date"],
+                    ATR_PERIOD + 1,
+                ),
+            )
+
+            atr_rows = [
+                {
+                    "date": row[0],
+                    "high": float(row[1]),
+                    "low": float(row[2]),
+                    "close": float(row[3]),
+                }
+                for row in reversed(cur.fetchall())
+            ]
+
+            atr_value = compute_atr(atr_rows, ATR_PERIOD)
+            entry_price = float(trade["entry_price"])
+
+            if atr_value is None:
+                allocation_weight = None
+                stop_distance = None
+                risk_amount = None
+                position_size = None
+                position_value = None
+            else:
+                stop_distance = atr_value * ATR_MULTIPLIER
+                risk_amount = sequential_equity * RISK_PER_TRADE
+                position_size = risk_amount / stop_distance
+                position_value = position_size * entry_price
+                position_value = min(position_value, sequential_equity)
+                allocation_weight = position_value / sequential_equity
+
+            atr_trade_metrics.append(
+                {
+                    "symbol": trade["symbol"],
+                    "entry_date": trade["entry_date"],
+                    "atr_value": atr_value,
+                    "stop_distance": stop_distance,
+                    "risk_amount": risk_amount,
+                    "position_size": position_size,
+                    "position_value": position_value,
+                    "allocation_weight": allocation_weight,
+                }
+            )
+
+            allocation_weights.append(allocation_weight)
+            sequential_equity *= 1 + result["net_return"]
+
     metrics = compute_metrics(results)
+
     daily_equity_curve, portfolio_max_drawdown_daily = compute_daily_portfolio(
         results,
         daily_returns_by_trade,
+    )
+
+    atr_equity_curve, atr_portfolio_max_drawdown_daily = (
+        compute_atr_daily_portfolio(
+            daily_returns_by_trade,
+            allocation_weights,
+        )
     )
 
     payload = {
@@ -279,12 +434,18 @@ def main() -> None:
             "risk_per_trade": RISK_PER_TRADE,
             "stop_mode": "intraday_low",
             "daily_portfolio_model": "equal_weight_active_positions",
+            "atr_period": ATR_PERIOD,
+            "atr_multiplier": ATR_MULTIPLIER,
+            "atr_sizing_model": "risk_targeted_dynamic_weight",
         },
         **metrics,
         "portfolio_max_drawdown_daily": portfolio_max_drawdown_daily,
+        "atr_portfolio_max_drawdown_daily": atr_portfolio_max_drawdown_daily,
         "net_returns": [r["net_return"] for r in results],
         "trade_results": results,
         "daily_equity_curve": daily_equity_curve,
+        "atr_trade_metrics": atr_trade_metrics,
+        "atr_dynamic_equity_curve": atr_equity_curve,
     }
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -299,7 +460,9 @@ def main() -> None:
         json.dumps(
             {
                 "portfolio_max_drawdown_daily": portfolio_max_drawdown_daily,
+                "atr_portfolio_max_drawdown_daily": atr_portfolio_max_drawdown_daily,
                 "daily_equity_points": len(daily_equity_curve),
+                "atr_dynamic_equity_points": len(atr_equity_curve),
             },
             indent=2,
         )
