@@ -39,3 +39,5 @@ data/clean/
 data/walk_forward_*
 data/atr_portfolio_*
 data/
+config/optuna_study.db
+config/*.db
