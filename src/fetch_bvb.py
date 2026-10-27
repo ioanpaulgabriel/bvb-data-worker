@@ -25,9 +25,9 @@ def persist_raw_to_postgres(
     http_status: int,
     row_count: int,
 ) -> None:
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("BVB_DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL nu este configurat")
+        raise RuntimeError("BVB_DATABASE_URL nu este configurat")
 
     payload = {
         "format": "csv",
@@ -63,9 +63,9 @@ def persist_raw_to_postgres(
             )
 
 def persist_clean_prices_to_postgres(df_clean: pd.DataFrame) -> int:
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("BVB_DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL nu este configurat")
+        raise RuntimeError("BVB_DATABASE_URL nu este configurat")
 
     rows = [
         (

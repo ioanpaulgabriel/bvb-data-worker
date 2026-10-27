@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "strategy": "atr_portfolio",
+  "walk_forward_type": "anchored",
+  "created_at": "2026-10-20T21:18:00+03:00",
+  "initial_cash": 100000.0,
+  "cost_rate": 0.005,
+  "use_stop_loss": false,
+  "date_format": "YYYY-MM-DD",
+  "folds": [
+    {
+      "fold_id": 1,
+      "train_start": "2021-01-01",
+      "train_end_exclusive": "2023-01-01",
+      "test_start": "2023-01-01",
+      "test_end_exclusive": "2024-01-01"
+    },
+    {
+      "fold_id": 2,
+      "train_start": "2021-01-01",
+      "train_end_exclusive": "2024-01-01",
+      "test_start": "2024-01-01",
+      "test_end_exclusive": "2025-01-01"
+    },
+    {
+      "fold_id": 3,
+      "train_start": "2021-01-01",
+      "train_end_exclusive": "2025-01-01",
+      "test_start": "2025-01-01",
+      "test_end_exclusive": "2026-01-01"
+    },
+    {
+      "fold_id": 4,
+      "train_start": "2021-01-01",
+      "train_end_exclusive": "2026-01-01",
+      "test_start": "2026-01-01",
+      "test_end_exclusive": "2027-01-01"
+    }
+  ],
+  "optimization": {
+    "enabled": true,
+    "trials_per_fold": 30,
+    "seed": 42,
+    "holding_days_options": [16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+    "min_volume_ratio_options": [1.5, 2.0, 2.5],
+    "direction": "maximize"
+  },
+  "output": {
+    "directory": "data/walk_forward",
+    "per_fold_trades": "fold_{fold_id}_trades.csv",
+    "per_fold_equity": "fold_{fold_id}_equity.csv",
+    "summary": "walk_forward_summary.csv",
+    "best_parameters": "walk_forward_best_parameters.json"
+  },
+  "rules": [
+    "Trainul nu include niciodată date din perioada de test.",
+    "Fiecare fold optimizează parametrii exclusiv pe train.",
+    "Parametrii aleși pe train sunt aplicați intact pe test.",
+    "Nu se face tuning pe test.",
+    "Rezultatele fold-urilor se raportează separat și apoi agregate."
+  ]
+}

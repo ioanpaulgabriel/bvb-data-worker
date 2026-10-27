@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from atr_portfolio_simulator import calculate_position
+from atr_portfolio_simulator import RISK_PER_TRADE, SIZING_ATR_MULTIPLIER, calculate_position
 
 
 def test_position_risk_equals_risk_per_trade():
@@ -24,7 +24,7 @@ def test_stop_distance_is_two_atr():
         atr_value=5.0,
     )
 
-    assert result["stop_distance"] == 10.0
+    assert result["stop_distance"] == 5.0 * SIZING_ATR_MULTIPLIER
 
 
 def test_position_value_is_consistent():
@@ -34,7 +34,10 @@ def test_position_value_is_consistent():
         atr_value=5.0,
     )
 
-    expected_position_value = 1_000.0 / (10.0 / 100.0)
+    expected_position_value = (100_000.0 * RISK_PER_TRADE) / (
+        (5.0 * SIZING_ATR_MULTIPLIER) / 100.0
+    )
 
     assert abs(result["position_value"] - expected_position_value) < 0.0001
-    assert abs(result["position_exposure"] - 0.10) < 0.0001
+    expected_exposure = expected_position_value / 100_000.0
+    assert abs(result["position_exposure"] - expected_exposure) < 0.0001

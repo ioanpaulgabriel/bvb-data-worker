@@ -8,5 +8,6 @@ echo "[$(date '+%F %T')] Starting BVB daily pipeline"
 
 python src/fetch_bvb.py
 python src/metrics_generator.py
+python scripts/publish_strategy.py
 
 echo "[$(date '+%F %T')] BVB daily pipeline finished"

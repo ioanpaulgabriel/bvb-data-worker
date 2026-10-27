@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from atr_portfolio_simulator import simulate_position
+from atr_portfolio_simulator import simulate_position, STOP_ATR_MULTIPLIER
 
 
 def make_rows():
@@ -43,7 +43,7 @@ def test_exit_at_stop_when_low_hits_stop():
 
     assert result["stopped_out"] is True
     assert result["actual_exit_date"] == date(2026, 1, 3)
-    assert result["exit_price"] == 90.0
+    assert result["exit_price"] == 100.0 - 5.0 * STOP_ATR_MULTIPLIER
 
 
 def test_exit_at_planned_open_when_stop_not_hit():

@@ -1,0 +1,9 @@
+symbol,status,rows,start_date,end_date,reason,generated_at,validation_rule
+ALR,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+BRD,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+BVB,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+DIGI,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+SNP,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+SNG,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+TLV,APPROVED,1444,2021-01-04,2026-10-14,Validated OHLCV history; no duplicates or material integrity errors,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
+AAG,EXCLUDED,1444,2021-01-04,2026-10-14,1 invalid OHLCV row on 2022-01-27: close 2.662082 above high 2.616962,2026-10-16T04:37:34.127530+00:00,"low <= min(open, close) and high >= max(open, close), tolerance 1e-6"
